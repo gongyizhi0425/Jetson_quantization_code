@@ -1,0 +1,17 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# Jupyter Notebook 检查点
+.ipynb_checkpoints/
+
+# 虚拟环境
+venv/
+env/
+
+# 模型与大数据集
+*.safetensors
+*.bin
+*.csv
+*.pt
+

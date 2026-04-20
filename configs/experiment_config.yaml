@@ -1,0 +1,78 @@
+# ============================================================
+# KV-Cache Management Experiment Configuration
+# Target: Jetson Orin NX 16 GB (Unified Memory, ~10-12 GB usable)
+# ============================================================
+
+# ---- Memory budget (Jetson Unified Memory) ----
+# Total physical: 16 GB LPDDR5 (shared CPU + GPU)
+#   System + Jupyter: ~4-6 GB
+#   Available for model + KV cache: ~10-12 GB
+#   Model weights (Qwen2.5-1.5B FP16): ~3.0 GB
+#   CUDA context overhead: ~0.5 GB
+#   >>> KV Cache budget: ~6-8 GB
+memory:
+  total_physical_gb: 16
+  usable_gb: 11              # conservative estimate
+  model_weights_gb: 3.0      # Qwen2.5-1.5B FP16
+  cuda_overhead_gb: 0.5
+  kv_budget_gb: 7.5          # usable - weight - overhead
+
+model:
+  name: "Qwen/Qwen2.5-1.5B-Instruct"    # GQA model (2 KV heads)
+  fallback: "Qwen/Qwen2.5-0.5B-Instruct" # lighter alternative if OOM
+  dtype: "float16"
+  device: "cuda"
+
+dataset:
+  # source: "pubmedqa" (download from HF) or "ehr" (synthetic EHR pipeline)
+  source: "ehr"
+  # PubMedQA settings (used when source=pubmedqa)
+  name: "qiaojin/PubMedQA"
+  subset: "pqa_labeled"
+  max_samples: 50            # enough for latency benchmarking
+  cache_dir: null            # HuggingFace datasets cache directory
+  # Synthetic EHR settings (used when source=ehr)
+  ehr_strategy: "selective"  # full_context | selective | sliding_window
+  ehr_retention_ratio: 0.5   # fraction of events to keep
+
+generation:
+  max_new_tokens: 256
+  do_sample: false           # greedy for reproducibility
+
+# ---- Phase 1: GQA Only (HuggingFace Transformers baseline) ----
+baseline:
+  cache_type: "dynamic"      # HF DynamicCache, FP16 contiguous
+
+# ---- Phase 2: PagedAttention (vLLM engine) ----
+paged_attention:
+  engine: "vllm"             # vLLM for real PagedAttention
+  block_size: 16             # tokens per page/block
+  gpu_memory_utilization: 0.60  # Conservative for Jetson unified memory
+  max_model_len: 4096        # safe for 10-12GB budget
+
+# ---- Phase 3: KIVI 2-bit (custom CUDA kernels) ----
+kivi:
+  bits: 2                    # 2-bit asymmetric quantization
+  group_size: 32
+  residual_length: 128       # recent tokens kept in FP16
+  backend: "cuda"            # "cuda" (real kernels) or "python" (reference)
+
+# ---- Phase 4: All combined ----
+combined:
+  block_size: 16
+  residual_blocks: 8
+  bits: 2
+  group_size: 32
+
+benchmark:
+  warmup_runs: 2
+  num_runs: 3
+
+oom_probe:
+  context_lengths: [256, 512, 1024, 2048, 4096, 8192, 16384]
+  max_new_tokens: 32         # short generation for OOM detection
+
+output:
+  results_dir: "results"
+  save_csv: true
+  save_plots: true

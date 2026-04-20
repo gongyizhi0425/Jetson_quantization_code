@@ -1,0 +1,9 @@
+events: data/processed/events.jsonl
+timelines: data/processed/timelines.jsonl
+qa: data/processed/qa.jsonl
+backend: rule_local
+model: rule_local
+retention_ratio: 0.5
+top_k_events: null
+max_context_tokens: null
+scoring_mode: keyword
