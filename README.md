@@ -158,6 +158,8 @@ Triton 是 NVIDIA 开发的 GPU kernel 编程语言 + 编译器，允许用 Pyth
                     num_free_blocks = int(getattr(kv_manager, "num_free_blocks", 0))
 
 
+PagedAttention 不改变PPL的数值
+
 #优化思路：
 #启用 FP8 KV Cache（如果 Jetson CUDA 支持）
         create_vllm_engine(cache_dtype="fp8_e5m2")
@@ -204,6 +206,7 @@ Triton 是 NVIDIA 开发的 GPU kernel 编程语言 + 编译器，允许用 Pyth
           
          把 llama_kivi.py 里最核心的计算流（包括打包逻辑 和 cuda_bmm_fA_qB_outer  C++ 引擎调用）完完整整地翻译并移植到了 Qwen2 的身上
 
+        
         核心1： forwar kivi方法   正常model forward时，需要拦截self attention层，进行动态量化，每次有新的k和v时，用CUDA kernel 算出scale 找最值
         核心2： 
 
@@ -212,7 +215,8 @@ Triton 是 NVIDIA 开发的 GPU kernel 编程语言 + 编译器，允许用 Pyth
 
          
          
-      #result： 
+ # result
+量化操作只在 "overflow" 时触发，Prefill 阶段无额外开销
  
 
 
@@ -247,6 +251,21 @@ Triton 是 NVIDIA 开发的 GPU kernel 编程语言 + 编译器，允许用 Pyth
   状态： 占用 2.9M 系统内存，2.8M GPU 内存。
 
   解析： 全称是 xdg-desktop-portal。这是一个 D-Bus 服务，主要用于为沙盒化应用（比如 Flatpak 格式的软件）提供安全的系统资源访问接口（比如屏幕共享、打开文件选择器等）。它占用极小的资源，属于正常的系统后台服务。
+
+
+
+  # KIVI的原理
+Residual Window 管理逻辑:
+        # 每次 update 时检查是否需要量化溢出部分
+res_len = key_residual.shape[-2]  # 当前 FP16 residual 长度
+if res_len >= residual_length + group_size:  # 比如 128+32=160
+    # 1. 取出最老的 (res_len - residual_length) 个 token
+    k_part = k[:, :, :n_quant, :].contiguous()
+    # 2. 按策略量化打包
+    k_block = quantize_per_channel(k_part, bits=2, group_size=32)
+    # 3. 追加到 quantized list，裁剪 residual
+    self._key_quant[layer_idx].append(k_block)
+    self._key_residual[layer_idx] = k[:, :, n_quant:, :]  # 只留最近 128 个
 
 
 
