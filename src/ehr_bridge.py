@@ -31,8 +31,8 @@ from typing import Dict, List, Optional
 # ---------------------------------------------------------------------------
 
 _PREPROC_ROOT = Path(__file__).resolve().parents[1] / "preprocessing" / "Final Project"
-_DEFAULT_QA = _PREPROC_ROOT / "data" / "processed" / "qa.jsonl"
-_DEFAULT_TIMELINES = _PREPROC_ROOT / "data" / "processed" / "timelines.jsonl"
+_DEFAULT_QA = _PREPROC_ROOT /  "qa.jsonl"
+_DEFAULT_TIMELINES = _PREPROC_ROOT / "timelines.jsonl"
 
 
 def _read_jsonl(path: Path) -> List[Dict]:

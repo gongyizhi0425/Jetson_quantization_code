@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500" viewBox="0 0 900 500">
+<style>
+text { font-family: Arial, Helvetica, sans-serif; fill: #202124; }
+.title { font-size: 20px; font-weight: 700; }
+.axis { stroke: #4b5563; stroke-width: 1.2; }
+.grid { stroke: #d1d5db; stroke-width: 1; }
+.label { font-size: 12px; }
+.small { font-size: 11px; fill: #4b5563; }
+</style>
+<rect x="0" y="0" width="900" height="500" fill="#ffffff"/>
+<text x="450.0" y="32" text-anchor="middle" class="title">Efficiency Metrics by Strategy</text>
+<line x1="90" y1="70" x2="90" y2="380" class="axis"/>
+<line x1="90" y1="380" x2="860" y2="380" class="axis"/>
+<text transform="translate(28 225.0) rotate(-90)" text-anchor="middle" class="label">Normalized bar height</text>
+<rect x="650" y="52" width="14" height="14" fill="#277da1"/><text x="670" y="64" class="small">Latency ms</text>
+<rect x="760" y="52" width="14" height="14" fill="#8f5f2a"/><text x="780" y="64" class="small">Peak memory MB</text>
+<rect x="141.2" y="121.7" width="42.0" height="258.3" fill="#277da1"/>
+<rect x="189.2" y="121.7" width="42.0" height="258.3" fill="#8f5f2a"/>
+<text x="162.2" y="114.7" text-anchor="middle" class="small">0.018</text>
+<text x="210.2" y="114.7" text-anchor="middle" class="small">0.0087</text>
+<text x="186.2" y="404" text-anchor="middle" class="small">Full context</text>
+<rect x="333.8" y="260.1" width="42.0" height="119.9" fill="#277da1"/>
+<rect x="381.8" y="252.3" width="42.0" height="127.7" fill="#8f5f2a"/>
+<text x="354.8" y="253.1" text-anchor="middle" class="small">0.008</text>
+<text x="402.8" y="245.3" text-anchor="middle" class="small">0.0043</text>
+<text x="378.8" y="404" text-anchor="middle" class="small">Sliding window</text>
+<rect x="526.2" y="217.3" width="42.0" height="162.7" fill="#277da1"/>
+<rect x="574.2" y="246.4" width="42.0" height="133.6" fill="#8f5f2a"/>
+<text x="547.2" y="210.3" text-anchor="middle" class="small">0.011</text>
+<text x="595.2" y="239.4" text-anchor="middle" class="small">0.0045</text>
+<text x="571.2" y="404" text-anchor="middle" class="small">Selective</text>
+<rect x="718.8" y="215.9" width="42.0" height="164.1" fill="#277da1"/>
+<rect x="766.8" y="246.4" width="42.0" height="133.6" fill="#8f5f2a"/>
+<text x="739.8" y="208.9" text-anchor="middle" class="small">0.011</text>
+<text x="787.8" y="239.4" text-anchor="middle" class="small">0.0045</text>
+<text x="763.8" y="404" text-anchor="middle" class="small">Query-aware selective</text>
+</svg>

@@ -84,6 +84,11 @@ def measure_generation(
     """
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     input_ids = inputs["input_ids"]
+    seq_len = input_ids.shape[1]
+
+    # 构建初始 attention_mask 和 position_ids
+    attention_mask = torch.ones(1, seq_len, dtype=torch.long, device=device)
+    position_ids = torch.arange(seq_len, dtype=torch.long, device=device).unsqueeze(0)
 
     # Snapshot model-only memory (before any KV allocation)
     torch.cuda.empty_cache()
@@ -103,6 +108,8 @@ def measure_generation(
 
     outputs = model(
         input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
         past_key_values=past,
         use_cache=True,
     )
@@ -113,6 +120,7 @@ def measure_generation(
 
     generated_ids.append(next_token.item())
     past = outputs.past_key_values
+    cur_pos = seq_len  # 当前已处理的 token 位置
 
     mem_after_prefill = torch.cuda.memory_allocated(device)
     kv_cache_mem_mb = (mem_after_prefill - mem_before) / (1024 ** 2)
@@ -123,11 +131,18 @@ def measure_generation(
         if next_token.item() == eos_id:
             break
 
+        # 逐步扩展 attention_mask，显式传递 position_ids
+        # 确保 RoPE 位置编码正确，避免自定义 cache 下位置漂移
+        attention_mask = torch.ones(1, cur_pos + 1, dtype=torch.long, device=device)
+        step_position_ids = torch.tensor([[cur_pos]], dtype=torch.long, device=device)
+
         torch.cuda.synchronize()
         t_step = time.perf_counter()
 
         outputs = model(
             input_ids=next_token,
+            attention_mask=attention_mask,
+            position_ids=step_position_ids,
             past_key_values=past,
             use_cache=True,
         )
@@ -139,6 +154,7 @@ def measure_generation(
         token_times.append(step_ms)
         generated_ids.append(next_token.item())
         past = outputs.past_key_values
+        cur_pos += 1
 
     # ---- Collect memory stats -------------------------------------------
     peak_mem = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
@@ -185,7 +201,7 @@ def run_benchmark(
     cache_factory: Optional[Callable] = None,
     max_new_tokens: int = 256,
     warmup_runs: int = 2,
-    num_runs: int = 3,
+    num_runs: int = 1,
     device: str = "cuda",
 ) -> List[Dict]:
     """Run a full benchmark over *prompts* with optional warmup.
@@ -194,9 +210,13 @@ def run_benchmark(
     ----------
     cache_factory : callable | None
         ``lambda: KIVICache(...)`` or ``None`` for default cache.
+    num_runs : int
+        Repeats per sample.  Default 1 (greedy decoding is deterministic,
+        timing variance on Jetson is <2%, multiple runs waste compute).
     """
-    # Warmup
-    for _ in range(warmup_runs):
+    # Warmup — 让 CUDA kernel 编译完成，避免首次运行的开销污染数据
+    print(f"Running {warmup_runs} warmup cycles...")
+    for i in range(warmup_runs):
         cache = cache_factory() if cache_factory else None
         _ = measure_generation(
             model, tokenizer, prompts[0]["prompt"],
@@ -205,11 +225,13 @@ def run_benchmark(
         )
         torch.cuda.empty_cache()
         gc.collect()
+    print("Warmup complete. Starting benchmark...\n")
 
     results = []
-    for item in prompts:
+    total = len(prompts)
+    for idx, item in enumerate(prompts, 1):
         prompt_results: List[GenerationMetrics] = []
-        for _ in range(num_runs):
+        for run_i in range(num_runs):
             cache = cache_factory() if cache_factory else None
             m = measure_generation(
                 model, tokenizer, item["prompt"],
@@ -224,8 +246,14 @@ def run_benchmark(
         avg = _average_metrics(prompt_results)
         avg["question"] = item.get("question", "")
         avg["pubid"] = item.get("pubid", "")
+        avg["generated_text"] = prompt_results[0].generated_text
         avg["sample_text"] = prompt_results[0].generated_text[:200]
         results.append(avg)
+
+        print(f"  [{idx}/{total}] ttft={avg['ttft_ms']:.0f}ms  "
+              f"tpot={avg['tpot_ms']:.1f}ms  "
+              f"peak={avg['peak_memory_mb']:.0f}MB  "
+              f"out={avg['num_output_tokens']}tok")
 
     return results
 
@@ -257,16 +285,23 @@ def find_oom_threshold(
     max_new_tokens: int = 32,
     cache_factory: Optional[Callable] = None,
     device: str = "cuda",
+    memory_headroom_mb: float = 1500.0,
 ) -> Dict[str, Any]:
     """Find the maximum context length before OOM (or near-OOM).
 
     Generates dummy input of increasing length and catches CUDA OOM.
     Reports the last successful length and the length that caused OOM.
 
+    Safety: before each probe, checks free GPU memory. If insufficient
+    headroom remains, marks as 'skip' instead of risking a kernel crash.
+
     Parameters
     ----------
     context_lengths : list[int]
         Sequence lengths to probe.  Default: powers of 2 from 256 to 16384.
+    memory_headroom_mb : float
+        Minimum free memory (MB) required before attempting a probe.
+        Default 1500 MB — prevents unrecoverable CUDA OOM.
 
     Returns
     -------
@@ -286,31 +321,61 @@ def find_oom_threshold(
         torch.cuda.empty_cache()
         gc.collect()
 
+        # --- Safety check: skip if free memory is too low ---
+        free_mb = (
+            torch.cuda.get_device_properties(device).total_memory
+            - torch.cuda.memory_allocated(device)
+        ) / (1024 ** 2)
+        if free_mb < memory_headroom_mb:
+            oom_at = seq_len
+            results.append({
+                "context_length": seq_len,
+                "status": f"skip (free={free_mb:.0f}MB < headroom={memory_headroom_mb:.0f}MB)",
+                "peak_memory_mb": float("nan"),
+                "utilization": float("nan"),
+            })
+            print(f"  ctx={seq_len}: skipped (only {free_mb:.0f} MB free)")
+            break
+
         try:
             input_ids = torch.full(
                 (1, seq_len), dummy_token, dtype=torch.long, device=device,
             )
+            attention_mask = torch.ones_like(input_ids)
+            position_ids = torch.arange(seq_len, device=device).unsqueeze(0)
+
             cache = cache_factory() if cache_factory else None
 
             torch.cuda.reset_peak_memory_stats(device)
 
+            # --- Prefill ---
             outputs = model(
                 input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
                 past_key_values=cache,
                 use_cache=True,
             )
 
-            # Generate a few tokens to stress KV cache
+            # --- Decode a few tokens to stress KV cache ---
             past = outputs.past_key_values
             next_tok = outputs.logits[:, -1:, :].argmax(dim=-1)
+            cur_pos = seq_len
+
             for _ in range(min(max_new_tokens, 16)):
+                step_mask = torch.ones(1, cur_pos + 1, dtype=torch.long, device=device)
+                step_pos = torch.tensor([[cur_pos]], device=device)
+
                 outputs = model(
                     input_ids=next_tok,
+                    attention_mask=step_mask,
+                    position_ids=step_pos,
                     past_key_values=past,
                     use_cache=True,
                 )
                 next_tok = outputs.logits[:, -1:, :].argmax(dim=-1)
                 past = outputs.past_key_values
+                cur_pos += 1
 
             peak = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
             util = peak / (JETSON_USABLE_GB * 1024)
@@ -322,8 +387,9 @@ def find_oom_threshold(
                 "utilization": util,
             })
             max_safe = seq_len
+            print(f"  ctx={seq_len}: OK  peak={peak:.0f} MB  util={util*100:.1f}%")
 
-            del outputs, past, next_tok, input_ids, cache
+            del outputs, past, next_tok, input_ids, attention_mask, position_ids, cache
             torch.cuda.empty_cache()
             gc.collect()
 
@@ -335,6 +401,7 @@ def find_oom_threshold(
                 "peak_memory_mb": float("nan"),
                 "utilization": float("nan"),
             })
+            print(f"  ctx={seq_len}: OOM!")
             torch.cuda.empty_cache()
             gc.collect()
             break
@@ -346,6 +413,7 @@ def find_oom_threshold(
                 "peak_memory_mb": float("nan"),
                 "utilization": float("nan"),
             })
+            print(f"  ctx={seq_len}: error: {e}")
             torch.cuda.empty_cache()
             gc.collect()
             break

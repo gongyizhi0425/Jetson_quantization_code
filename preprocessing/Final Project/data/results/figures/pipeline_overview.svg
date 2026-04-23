@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="260" viewBox="0 0 980 260">
+<style>
+text { font-family: Arial, Helvetica, sans-serif; fill: #202124; }
+.title { font-size: 20px; font-weight: 700; }
+.axis { stroke: #4b5563; stroke-width: 1.2; }
+.grid { stroke: #d1d5db; stroke-width: 1; }
+.label { font-size: 12px; }
+.small { font-size: 11px; fill: #4b5563; }
+</style>
+<rect x="0" y="0" width="980" height="260" fill="#ffffff"/>
+<text x="490.0" y="32" text-anchor="middle" class="title">Selective Retention Experiment Pipeline</text>
+<rect x="45" y="105" width="125" height="58" rx="8" fill="#2f6f4e" opacity="0.92"/>
+<text x="107.5" y="130" text-anchor="middle" fill="#ffffff" class="label">Synthetic</text>
+<text x="107.5" y="148" text-anchor="middle" fill="#ffffff" class="label">EHR</text>
+<line x1="176" y1="134.0" x2="196" y2="134.0" stroke="#4b5563" stroke-width="2"/>
+<polygon points="196,129.0 196,139.0 205,134.0" fill="#4b5563"/>
+<rect x="202" y="105" width="125" height="58" rx="8" fill="#2f6f4e" opacity="0.92"/>
+<text x="264.5" y="130" text-anchor="middle" fill="#ffffff" class="label">Patient</text>
+<text x="264.5" y="148" text-anchor="middle" fill="#ffffff" class="label">timeline</text>
+<line x1="333" y1="134.0" x2="353" y2="134.0" stroke="#4b5563" stroke-width="2"/>
+<polygon points="353,129.0 353,139.0 362,134.0" fill="#4b5563"/>
+<rect x="359" y="105" width="125" height="58" rx="8" fill="#2f6f4e" opacity="0.92"/>
+<text x="421.5" y="130" text-anchor="middle" fill="#ffffff" class="label">QA</text>
+<text x="421.5" y="148" text-anchor="middle" fill="#ffffff" class="label">with gold evidence</text>
+<line x1="490" y1="134.0" x2="510" y2="134.0" stroke="#4b5563" stroke-width="2"/>
+<polygon points="510,129.0 510,139.0 519,134.0" fill="#4b5563"/>
+<rect x="516" y="105" width="125" height="58" rx="8" fill="#277da1" opacity="0.92"/>
+<text x="578.5" y="130" text-anchor="middle" fill="#ffffff" class="label">Context</text>
+<text x="578.5" y="148" text-anchor="middle" fill="#ffffff" class="label">strategy</text>
+<line x1="647" y1="134.0" x2="667" y2="134.0" stroke="#4b5563" stroke-width="2"/>
+<polygon points="667,129.0 667,139.0 676,134.0" fill="#4b5563"/>
+<rect x="673" y="105" width="125" height="58" rx="8" fill="#2f6f4e" opacity="0.92"/>
+<text x="735.5" y="130" text-anchor="middle" fill="#ffffff" class="label">Inference</text>
+<text x="735.5" y="148" text-anchor="middle" fill="#ffffff" class="label">backend</text>
+<line x1="804" y1="134.0" x2="824" y2="134.0" stroke="#4b5563" stroke-width="2"/>
+<polygon points="824,129.0 824,139.0 833,134.0" fill="#4b5563"/>
+<rect x="830" y="105" width="125" height="58" rx="8" fill="#2f6f4e" opacity="0.92"/>
+<text x="892.5" y="130" text-anchor="middle" fill="#ffffff" class="label">Quality</text>
+<text x="892.5" y="148" text-anchor="middle" fill="#ffffff" class="label">+ efficiency</text>
+<text x="490" y="215" text-anchor="middle" class="small">Full context vs sliding window vs selective retention vs query-aware selective retention</text>
+</svg>

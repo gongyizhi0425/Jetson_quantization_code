@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="520" viewBox="0 0 820 520">
+<style>
+text { font-family: Arial, Helvetica, sans-serif; fill: #202124; }
+.title { font-size: 20px; font-weight: 700; }
+.axis { stroke: #4b5563; stroke-width: 1.2; }
+.grid { stroke: #d1d5db; stroke-width: 1; }
+.label { font-size: 12px; }
+.small { font-size: 11px; fill: #4b5563; }
+</style>
+<rect x="0" y="0" width="820" height="520" fill="#ffffff"/>
+<text x="410.0" y="32" text-anchor="middle" class="title">Quality vs Context Size</text>
+<line x1="90" y1="425.0" x2="780" y2="425.0" class="grid"/>
+<text x="78" y="429.0" text-anchor="end" class="small">0.0</text>
+<line x1="90" y1="354.0" x2="780" y2="354.0" class="grid"/>
+<text x="78" y="358.0" text-anchor="end" class="small">0.2</text>
+<line x1="90" y1="283.0" x2="780" y2="283.0" class="grid"/>
+<text x="78" y="287.0" text-anchor="end" class="small">0.4</text>
+<line x1="90" y1="212.0" x2="780" y2="212.0" class="grid"/>
+<text x="78" y="216.0" text-anchor="end" class="small">0.6</text>
+<line x1="90" y1="141.0" x2="780" y2="141.0" class="grid"/>
+<text x="78" y="145.0" text-anchor="end" class="small">0.8</text>
+<line x1="90" y1="70.0" x2="780" y2="70.0" class="grid"/>
+<text x="78" y="74.0" text-anchor="end" class="small">1.0</text>
+<line x1="90" y1="70" x2="90" y2="425" class="axis"/>
+<line x1="90" y1="425" x2="780" y2="425" class="axis"/>
+<text x="410.0" y="484" text-anchor="middle" class="label">Average input tokens</text>
+<text transform="translate(28 247.5) rotate(-90)" text-anchor="middle" class="label">Exact match</text>
+<circle cx="728.9" cy="70.0" r="8" fill="#2f6f4e"/>
+<text x="740.9" y="74.0" class="label">Full context</text>
+<circle cx="407.4" cy="425.0" r="8" fill="#b33c2e"/>
+<text x="419.4" y="429.0" class="label">Sliding window</text>
+<circle cx="414.7" cy="70.0" r="8" fill="#277da1"/>
+<text x="426.7" y="74.0" class="label">Selective</text>
+<circle cx="418.0" cy="70.0" r="8" fill="#6a4c93"/>
+<text x="430.0" y="74.0" class="label">Query-aware selective</text>
+</svg>
