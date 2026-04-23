@@ -100,61 +100,31 @@ def compute_perplexity(
 
 
 @torch.no_grad()
-def compute_ppl_with_kv_cache(
-    model,
-    tokenizer,
-    texts: List[str],
-    cache_factory=None,
-    max_length: int = 1024,
-    device: str = "cuda",
-) -> Dict[str, float]:
-    """Compute PPL by running generation-style forward passes with a KV cache.
-
-    This evaluates the actual cache being used (e.g. quantized KIVI).
-    Compares each token prediction with the ground truth.
-
-    This is slower but tests the *real cache path*.
-    """
+def compute_ppl_with_kv_cache(model, tokenizer, texts, cache_factory=None, max_length=512, device="cuda"):
     model.eval()
-    total_loss = 0.0
-    total_tokens = 0
-    loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
+    total_loss, total_tokens = 0.0, 0
+    loss_fn = torch.nn.CrossEntropyLoss()
 
-    for text in tqdm(texts, desc="PPL with KV Cache"):
-        input_ids = tokenizer(text, return_tensors="pt", truncation=True,
-                              max_length=max_length).input_ids.to(device)
+    for text in tqdm(texts, desc="KIVI Decode PPL"):
+        input_ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).input_ids.to(device)
         seq_len = input_ids.shape[1]
-        if seq_len < 2:
-            continue
+        prefill_len = min(128, seq_len // 2)
+        if seq_len <= prefill_len + 1: continue
 
-        cache = cache_factory() if cache_factory else None
+        # 初始化自定义的 Cache 对象
+        past_kv = cache_factory() if cache_factory is not None else None
 
-        # Prefill: feed all tokens at once
-        outputs = model(
-            input_ids=input_ids,
-            past_key_values=cache,
-            use_cache=True,
-        )
+        # 1. 预填充阶段 (建立初始 KV Cache)
+        outputs = model(input_ids[:, :prefill_len], past_key_values=past_kv, use_cache=True)
+        past_kv = outputs.past_key_values
+        
+        # 2. 自回归 Decode 阶段 (强制触发底层 2-bit 读取)
+        for i in range(prefill_len, seq_len):
+            outputs = model(input_ids[:, i-1:i], past_key_values=past_kv, use_cache=True)
+            past_kv = outputs.past_key_values
+            
+            loss = loss_fn(outputs.logits[0, -1, :], input_ids[0, i])
+            total_loss += loss.item()
+            total_tokens += 1
 
-        logits = outputs.logits[:, :-1, :]  # (1, seq-1, vocab)
-        targets = input_ids[:, 1:]          # (1, seq-1)
-
-        per_token_loss = loss_fn(
-            logits.reshape(-1, logits.shape[-1]),
-            targets.reshape(-1),
-        )
-
-        total_loss += per_token_loss.sum().item()
-        total_tokens += targets.shape[1]
-
-        del outputs, cache
-        torch.cuda.empty_cache()
-
-    avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
-    ppl = math.exp(avg_loss) if avg_loss < 100 else float("inf")
-
-    return {
-        "ppl": ppl,
-        "avg_loss": avg_loss,
-        "num_tokens": total_tokens,
-    }
+    return {"ppl": math.exp(total_loss / total_tokens), "num_tokens": total_tokens}

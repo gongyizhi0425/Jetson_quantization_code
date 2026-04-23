@@ -22,9 +22,9 @@ _KIVI_CUDA_AVAILABLE = False
 _kivi_real = None
 
 try:
-    import kivi_gemm  # the compiled CUDA extension from KIVI repo
+    import kivi_gemv  # compiled CUDA op module from KIVI repo
     _KIVI_CUDA_AVAILABLE = True
-    logger.info("KIVI CUDA backend loaded successfully")
+    logger.info("KIVI CUDA backend loaded successfully (kivi_gemv)")
 except ImportError:
     logger.warning(
         "KIVI CUDA backend not found. Using pure-Python reference.\n"
@@ -33,12 +33,33 @@ except ImportError:
         "  See scripts/setup_kivi_jetson.sh"
     )
 
-try:
-    # Some KIVI forks expose the cache class differently
-    from kivi import KVQuantCache as _RealKIVICache
-    _kivi_real = _RealKIVICache
-except ImportError:
-    pass
+if _KIVI_CUDA_AVAILABLE:
+    # Some KIVI forks expose cache classes under different module paths.
+    _cache_paths = [
+        ("kivi", "KVQuantCache"),
+        ("kivi", "KiviCache"),
+        ("kivi", "KIVICache"),
+    ]
+    for module_name, class_name in _cache_paths:
+        try:
+            mod = __import__(module_name, fromlist=[class_name])
+            cls = getattr(mod, class_name, None)
+            if cls is not None:
+                _kivi_real = cls
+                logger.info(
+                    "KIVI cache class found: %s.%s",
+                    module_name,
+                    class_name,
+                )
+                break
+        except Exception:
+            continue
+
+    if _kivi_real is None:
+        logger.warning(
+            "kivi_gemv is available, but no KIVI cache class was found in Python package. "
+            "Will use local KIVICache fallback for cache object path."
+        )
 
 
 def is_cuda_backend_available() -> bool:
@@ -48,8 +69,10 @@ def is_cuda_backend_available() -> bool:
 
 def get_backend_info() -> str:
     """Return a description of the active KIVI backend."""
+    if _KIVI_CUDA_AVAILABLE and _kivi_real is not None:
+        return "KIVI CUDA backend (kivi_gemv + cache class)"
     if _KIVI_CUDA_AVAILABLE:
-        return "KIVI CUDA backend (compiled kernels)"
+        return "KIVI CUDA backend (kivi_gemv only; cache class missing)"
     return "KIVI pure-Python reference (no CUDA acceleration)"
 
 
@@ -87,6 +110,12 @@ def create_kivi_cache(
             bits=bits,
             group_size=group_size,
             residual_length=residual_length,
+        )
+
+    if prefer_cuda and _KIVI_CUDA_AVAILABLE and _kivi_real is None:
+        logger.warning(
+            "kivi_gemv operator is present, but external KIVI cache class is unavailable. "
+            "Falling back to local KIVICache object path."
         )
 
     # Fallback to our pure-Python reference

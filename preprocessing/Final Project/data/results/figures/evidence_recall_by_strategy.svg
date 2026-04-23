@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="470" viewBox="0 0 860 470">
+<style>
+text { font-family: Arial, Helvetica, sans-serif; fill: #202124; }
+.title { font-size: 20px; font-weight: 700; }
+.axis { stroke: #4b5563; stroke-width: 1.2; }
+.grid { stroke: #d1d5db; stroke-width: 1; }
+.label { font-size: 12px; }
+.small { font-size: 11px; fill: #4b5563; }
+</style>
+<rect x="0" y="0" width="860" height="470" fill="#ffffff"/>
+<text x="430.0" y="32" text-anchor="middle" class="title">Evidence Retention Under Compression</text>
+<line x1="80" y1="340.0" x2="830" y2="340.0" class="grid"/>
+<text x="68" y="344.0" text-anchor="end" class="small">0.0</text>
+<line x1="80" y1="286.0" x2="830" y2="286.0" class="grid"/>
+<text x="68" y="290.0" text-anchor="end" class="small">0.2</text>
+<line x1="80" y1="232.0" x2="830" y2="232.0" class="grid"/>
+<text x="68" y="236.0" text-anchor="end" class="small">0.4</text>
+<line x1="80" y1="178.0" x2="830" y2="178.0" class="grid"/>
+<text x="68" y="182.0" text-anchor="end" class="small">0.6</text>
+<line x1="80" y1="124.0" x2="830" y2="124.0" class="grid"/>
+<text x="68" y="128.0" text-anchor="end" class="small">0.8</text>
+<line x1="80" y1="70.0" x2="830" y2="70.0" class="grid"/>
+<text x="68" y="74.0" text-anchor="end" class="small">1.0</text>
+<line x1="80" y1="70" x2="80" y2="340" class="axis"/>
+<line x1="80" y1="340" x2="830" y2="340" class="axis"/>
+<text transform="translate(28 205.0) rotate(-90)" text-anchor="middle" class="label">Evidence recall</text>
+<rect x="80.0" y="70.0" width="174.0" height="270.0" fill="#2f6f4e"/>
+<text x="167.0" y="62.0" text-anchor="middle" class="label">1.00</text>
+<text x="167.0" y="364" text-anchor="middle" class="small">Full context</text>
+<text x="167.0" y="382" text-anchor="middle" class="small">829 tokens</text>
+<rect x="272.0" y="340.0" width="174.0" height="0.0" fill="#b33c2e"/>
+<text x="359.0" y="332.0" text-anchor="middle" class="label">0.00</text>
+<text x="359.0" y="364" text-anchor="middle" class="small">Sliding window</text>
+<text x="359.0" y="382" text-anchor="middle" class="small">412 tokens</text>
+<rect x="464.0" y="70.0" width="174.0" height="270.0" fill="#277da1"/>
+<text x="551.0" y="62.0" text-anchor="middle" class="label">1.00</text>
+<text x="551.0" y="364" text-anchor="middle" class="small">Selective</text>
+<text x="551.0" y="382" text-anchor="middle" class="small">421 tokens</text>
+<rect x="656.0" y="70.0" width="174.0" height="270.0" fill="#6a4c93"/>
+<text x="743.0" y="62.0" text-anchor="middle" class="label">1.00</text>
+<text x="743.0" y="364" text-anchor="middle" class="small">Query-aware selective</text>
+<text x="743.0" y="382" text-anchor="middle" class="small">425 tokens</text>
+</svg>

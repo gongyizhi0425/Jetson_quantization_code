@@ -1,0 +1,25 @@
+# This is an example configuration file
+# To learn more, see the full config.yaml reference: https://docs.continue.dev/reference
+
+name: Gemini Config
+version: 1.0.0
+schema: v1
+
+# Define which models can be used
+# https://docs.continue.dev/customization/models
+models:
+  - title: Gemini 1.5 Pro
+    provider: gemini
+    model: gemini-1.5-pro-latest
+    apiKey: "AIzaSyDvyn3DzXNoXBhUpwonP2sMWY20B0iykwg"
+
+tabAutocompleteModel:
+  title: Gemini 1.5 Flash
+  provider: gemini
+  model: gemini-1.5-flash-latest
+  apiKey: "AIzaSyDvyn3DzXNoXBhUpwonP2sMWY20B0iykwg"
+
+# MCP Servers that Continue can access
+# https://docs.continue.dev/customization/mcp-tools
+mcpServers:
+  - uses: anthropic/memory-mcp
