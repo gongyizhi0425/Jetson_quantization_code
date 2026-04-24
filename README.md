@@ -4,11 +4,7 @@
 # 从别的系统进入
         http://10.30.54.15:8888/lab/tree/KV_cache_experiment/results
         http://10.30.54.15:8888
-http://ubuntu:8888/?token=5ba5397eaa2c4589c528e021e7c0cf6364ebf7321a239268 :: /home/gyz
 
-
-http://ubuntu:8889/?token=ae6a36b549829dd62a0a305e9d6c213714b247ba6950800a :: /workspace
-内层
 
 
 # 进入jupyter lab
