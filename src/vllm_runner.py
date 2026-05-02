@@ -122,7 +122,15 @@ def create_vllm_engine(
     
     return engine
 
-def run_vllm_benchmark(engine, prompts, max_new_tokens=256, warmup_runs=2, device="cuda", jetson_usable_gb=11.0):
+def run_vllm_benchmark(engine, prompts, max_new_tokens=256, warmup_runs=2, device="cuda", jetson_usable_gb=11.0, batch_size=1):
+    """Run vLLM benchmark with configurable batch size.
+    
+    Parameters
+    ----------
+    batch_size : int
+        Number of prompts to send in one engine.generate() call.
+        Default 1 preserves original single-request behavior.
+    """
     sampling_params = SamplingParams(
         max_tokens=max_new_tokens,
         temperature=0.0,  # greedy decoding
@@ -130,8 +138,7 @@ def run_vllm_benchmark(engine, prompts, max_new_tokens=256, warmup_runs=2, devic
     )
     results = []
 
-
-   # ---------------- 提取 vLLM Cache Config ----------------
+    # ---------------- 提取 vLLM Cache Config ----------------
     cache_cfg = getattr(engine.llm_engine, "cache_config", None)
     default_block_size = getattr(cache_cfg, "block_size", 16) if cache_cfg else 16
     _raw_total = getattr(cache_cfg, "num_gpu_blocks", 0)
@@ -142,90 +149,23 @@ def run_vllm_benchmark(engine, prompts, max_new_tokens=256, warmup_runs=2, devic
     print(f"  Block Size (tokens): {default_block_size}")
     if num_total_gpu_blocks > 0:
         print(f"  Max Context Length : ~{num_total_gpu_blocks * default_block_size} tokens")
+    print(f"  Batch Size         : {batch_size}")
     print()
 
-    # Warmup
-    print(f" 正在执行 {warmup_runs} 次预热，激活 CUDA Graph 与显存池...")
+    # Warmup (use repeated first prompt to form a batch)
+    print(f" 正在执行 {warmup_runs} 次预热 (batch_size={batch_size})...")
+    warmup_prompts = [prompts[0]['prompt']] * batch_size
     for _ in range(warmup_runs):
-        # 关闭 tqdm 避免刷屏干扰
-        _ = engine.generate([prompts[0]['prompt']], SamplingParams(max_tokens=50, temperature=0.0), use_tqdm=False)
+        _ = engine.generate(warmup_prompts, SamplingParams(max_tokens=50, temperature=0.0), use_tqdm=False)
     print(" 预热完成，开始科学测速。\n")
 
     torch.cuda.reset_peak_memory_stats(device)
-    model_weight_mb = torch.cuda.memory_allocated(device) / (1024 ** 2)  #模型本身的权重 + vLLM 预先霸占的 KV Cache 静态池
+    model_weight_mb = torch.cuda.memory_allocated(device) / (1024 ** 2)
 
-    for idx, item in enumerate(prompts, 1):
-        prompt_text = item['prompt']
-
-        torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        
-        outputs = engine.generate([prompt_text], sampling_params, use_tqdm=False)
-        
-        torch.cuda.synchronize()  #really important！ Otherwise, the time is not accurate
-        t1 = time.perf_counter()  
-
-        output = outputs[0]
-        n_input = len(output.prompt_token_ids)  # 喂进去的长度
-        n_output = len(output.outputs[0].token_ids) if output.outputs else 0   #decode出来的长度
-        gen_text = output.outputs[0].text if output.outputs else ""
-
-        total_time_ms = (t1 - t0) * 1000.0
-
-# ---------------- 3. 时间指标科学修正 (TTFT / TPOT) ----------------
-        ttft_ms = 0.0
-        tpot_ms = 0.0
-
-        if hasattr(output, "metrics") and output.metrics is not None:    #metrics是vLLM生成过程中记录的详细时间点，包含调度、首token生成、完成等时间戳
-            m = output.metrics
-
-            
-            t_sched = getattr(m, 'first_scheduled_time', None)   #调度器是几分几秒正式把你的任务塞进 GPU 显存开始计算的（中间可能因为 GPU 忙而在排队）
-            t_first = getattr(m, 'first_token_time', None)   #GPU 吭哧吭哧算完，吐出第一个字是几分几秒。
-            t_finish = getattr(m, 'finished_time', None)
-
-            if t_first and t_sched:
-               ttft_ms = (t_first - t_sched) * 1000.0  # 排除排队干扰：故意没有用 arrival_time
-            
-            if t_finish and t_first and n_output > 1:
-                tpot_ms = ((t_finish - t_first) * 1000.0) / (n_output - 1)# -假设大模型一共回答了 10 个字。第一个字的生成时间已经被算在 TTFT 里了。所以在这段剩余的时间里，大模型其实只生成了 9 个字
-        
-
-# 降级估算 (应对极端情况)
-        if ttft_ms <= 0:
-            ttft_ms = total_time_ms * 0.12  
-        if tpot_ms <= 0 and n_output > 1:
-            decode_time_ms = max(0.0, total_time_ms - ttft_ms)
-            tpot_ms = decode_time_ms / (n_output - 1)
-        elif tpot_ms <= 0:
-            tpot_ms = total_time_ms
-
-        # ---------------- 4. 显存与碎片率提取 ----------------
-        # 峰值与总利用率
-        #peak_mem = torch.cuda.max_memory_allocated(device) / (1024 ** 2)  #torch.cuda.max_memory_allocated(device): 获取自程序运行以来 PyTorch 在指定 GPU 上实际分配过的最大显存字节数。
-        # utilization = peak_mem / ...
-        process = psutil.Process(os.getpid())
-        process_mem_bytes = process.memory_info().rss  # RSS: 常驻集大小
-        peak_mem = process_mem_bytes / (1024 ** 2)     # 转换为 MB
-
-        total_blocks = 0
-        free_blocks = 0
-        block_size = default_block_size
-        frag = 0.0
-        
-       
-
-
-        # 由于 vLLM 霸占显存，我们用严格的数学公式倒推当前序列的实际 KV Cache 占用
-        # 适配 Qwen2.5-1.5B 结构 (28层, 2组KV头, 128维, FP16占2字节)
- 
-        
+    # ---------------- 辅助：读取 Block 状态 ----------------
+    def _get_block_stats():
         num_free_blocks = 0
-        frag = 0.0
-        block_utilization = 0.0
-        
         try:
-            # 适配 vLLM 0.8.x 的多级探针
             scheduler = None
             if hasattr(engine, "_scheduler"):
                 scheduler = engine._scheduler
@@ -237,77 +177,119 @@ def run_vllm_benchmark(engine, prompts, max_new_tokens=256, warmup_runs=2, devic
                 scheduler = engine.llm_engine.scheduler
             
             if scheduler:
-                # vLLM V1 架构首选 kv_cache_manager
                 kv_manager = getattr(scheduler, "kv_cache_manager", None)
                 bm = getattr(scheduler, "block_manager", getattr(scheduler, "_block_manager", None))
                 
                 if kv_manager:
                     _tot = getattr(kv_manager, "num_gpu_blocks", 0)
+                    nonlocal num_total_gpu_blocks
                     num_total_gpu_blocks = int(_tot) if _tot is not None else num_total_gpu_blocks
                     num_free_blocks = int(getattr(kv_manager, "num_free_blocks", 0))
                 elif bm:
-                    # 兼容 V0 架构的 block_manager
                     _tot = getattr(bm, "num_total_gpu_blocks", 0)
                     if _tot is not None and _tot > 0:
                         num_total_gpu_blocks = int(_tot)
-                        
                     if hasattr(bm, "get_num_free_gpu_blocks"):
                         num_free_blocks = int(bm.get_num_free_gpu_blocks())
                     else:
                         num_free_blocks = int(getattr(bm, "num_free_gpu_blocks", 0))
-
         except Exception:
             pass
-
-        # 严格的数学计算，防止被 0 除
+        
         if num_total_gpu_blocks > 0:
             num_used_blocks = num_total_gpu_blocks - num_free_blocks
             block_utilization = num_used_blocks / num_total_gpu_blocks
-            frag = num_free_blocks / num_total_gpu_blocks  # 空闲浪费率
+            frag = num_free_blocks / num_total_gpu_blocks
         else:
             num_used_blocks = 0
-            
-            # Fallback 到 PyTorch 层面的碎片计算
+            block_utilization = 0.0
             reserved = torch.cuda.memory_reserved(device)
             allocated = torch.cuda.memory_allocated(device)
             frag = 1.0 - (allocated / reserved) if reserved > 0 else 0.0
+        return num_used_blocks, block_utilization, frag
 
+    # ---------------- Batch 主循环 ----------------
+    total = len(prompts)
+    batch_idx = 0
+    for start in range(0, total, batch_size):
+        batch_idx += 1
+        batch = prompts[start:start + batch_size]
+        batch_prompts = [item['prompt'] for item in batch]
+        batch_base = start + 1  # 1-based global index
 
-        bytes_per_token = 28 * 2 * 128 * 2 * 2  # 每个 token 的 KV 占用 = 层数 × 头数 × 每头维度 × FP16字节数 × KV两份
-        kv_cache_mem_mb = ((n_input + n_output) * bytes_per_token) / (1024 ** 2)
-        utilization = block_utilization if block_utilization > 0 else (peak_mem / (jetson_usable_gb * 1024) if jetson_usable_gb > 0 else 0.0)
-
-
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
         
-        # 从 vLLM 调度器抓取真实的区块使用情况来计算碎片率 定义为：分配了但没被当前序列有效利用的空闲池子比例。vLLM 将显存切分成了固定大小的区块（Blocks）。这里直接读取 GPU 上总的区块数 (total_blocks) 和当前空闲的区块数 (free_blocks)，算出空闲块占比作为碎片率/闲置率。
-      
-                
-     
-
-        # ---------------- 5. 严格遵循要求的输出格式 ----------------
-        results.append({
-            'ttft_ms': ttft_ms,
-            'tpot_ms': tpot_ms,
-            'total_time_ms': total_time_ms,
-            'num_input_tokens': n_input,
-            'num_output_tokens': n_output,
-            'peak_memory_mb': peak_mem,
-            'model_weight_mb': model_weight_mb,
-            'kv_cache_memory_mb': kv_cache_mem_mb,
-            'memory_fragmentation': frag,
-            'memory_utilization': utilization,
-            'num_used_blocks': num_used_blocks,
-            'num_total_blocks': num_total_gpu_blocks,
-            'block_size': default_block_size,
-            'generated_text': gen_text,
-        })
+        outputs = engine.generate(batch_prompts, sampling_params, use_tqdm=False)
         
-        # 安全打印：用三元表达式确保不会出现 0/0 或者 None
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        batch_wall_ms = (t1 - t0) * 1000.0
+
+        # 显存与碎片：batch 结束后统一读一次（全局状态）
+        process = psutil.Process(os.getpid())
+        peak_mem = process.memory_info().rss / (1024 ** 2)
+        num_used_blocks, block_utilization, frag = _get_block_stats()
         blocks_display = f"{num_used_blocks}/{num_total_gpu_blocks}" if num_total_gpu_blocks > 0 else "?/?"
-        
-        print(f"[{idx}/{len(prompts)}] ttft={ttft_ms:.1f}ms  tpot={tpot_ms:.1f}ms  "
-              f"peak={peak_mem:.0f}MB  blocks={blocks_display}  "
-              f"({block_utilization*100:.1f}%)  out={n_output}tok")
+
+        # 逐条拆分结果
+        for b_i, (output, item) in enumerate(zip(outputs, batch)):
+            global_idx = start + b_i + 1
+            n_input = len(output.prompt_token_ids)
+            n_output = len(output.outputs[0].token_ids) if output.outputs else 0
+            gen_text = output.outputs[0].text if output.outputs else ""
+
+            # TTFT / TPOT：优先用每条 output 自己的 metrics
+            ttft_ms = 0.0
+            tpot_ms = 0.0
+            if hasattr(output, "metrics") and output.metrics is not None:
+                m = output.metrics
+                t_sched = getattr(m, 'first_scheduled_time', None)
+                t_first = getattr(m, 'first_token_time', None)
+                t_finish = getattr(m, 'finished_time', None)
+
+                if t_first and t_sched:
+                    ttft_ms = (t_first - t_sched) * 1000.0
+                if t_finish and t_first and n_output > 1:
+                    tpot_ms = ((t_finish - t_first) * 1000.0) / (n_output - 1)
+
+            # 降级估算（metrics 缺失时）
+            if ttft_ms <= 0:
+                # batch 中各条共享 wall-clock，按平均估计
+                ttft_ms = batch_wall_ms * 0.12 
+            if tpot_ms <= 0 and n_output > 1:
+                decode_time_ms = max(0.0, batch_wall_ms - ttft_ms ) 
+                tpot_ms = decode_time_ms / (n_output - 1)
+            elif tpot_ms <= 0:
+                tpot_ms = batch_wall_ms / len(batch)
+
+            # 单条 KV Cache 估算（与 batch_size 无关，按单条序列长度）
+            bytes_per_token = 28 * 2 * 128 * 2 * 2
+            kv_cache_mem_mb = ((n_input + n_output) * bytes_per_token) / (1024 ** 2)
+            utilization = block_utilization if block_utilization > 0 else (peak_mem / (jetson_usable_gb * 1024) if jetson_usable_gb > 0 else 0.0)
+
+            results.append({
+                'ttft_ms': ttft_ms,
+                'tpot_ms': tpot_ms,
+                'total_time_ms': batch_wall_ms / len(batch),  # 均摊 wall-clock
+                'num_input_tokens': n_input,
+                'num_output_tokens': n_output,
+                'peak_memory_mb': peak_mem,
+                'model_weight_mb': model_weight_mb,
+                'kv_cache_memory_mb': kv_cache_mem_mb,
+                'memory_fragmentation': frag,
+                'memory_utilization': utilization,
+                'num_used_blocks': num_used_blocks,
+                'num_total_blocks': num_total_gpu_blocks,
+                'block_size': default_block_size,
+                'batch_size': batch_size,
+                'batch_idx': batch_idx,
+                'generated_text': gen_text,
+            })
+
+            print(f"[{global_idx}/{total}] batch={batch_idx}  ttft={ttft_ms:.1f}ms  tpot={tpot_ms:.1f}ms  "
+                  f"peak={peak_mem:.0f}MB  blocks={blocks_display}  "
+                  f"({block_utilization*100:.1f}%)  out={n_output}tok")
 
     return results
 
